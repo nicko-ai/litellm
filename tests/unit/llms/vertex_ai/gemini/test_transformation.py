@@ -475,3 +475,58 @@ async def test_vertex_ai_async_transform_inlines_only_the_urls_gemini_cannot_fet
         {"file_data": {"mime_type": "application/pdf", "file_uri": files_api_pdf}},
     ]
     assert sorted(async_only_image_fetch.fetched) == sorted([plain_http_png, extensionless_https])
+
+
+THOUGHT = "Two cities, so two weather calls."
+GEMINI_PART_JSON = '{"functionCall": {"name": "get_weather", "args": {"city": "Paris"}}}'
+
+
+@pytest.mark.parametrize(
+    ("saved_turn", "expected_replayed_thinking"),
+    [
+        pytest.param(
+            {
+                "reasoning_content": THOUGHT,
+                "thinking_blocks": [{"type": "thinking", "thinking": THOUGHT, "signature": "anthropic-signature"}],
+            },
+            [{"thought": True, "text": THOUGHT}],
+            id="anthropic-signed-block-drops-foreign-signature-and-duplicate",
+        ),
+        pytest.param(
+            {"reasoning_content": THOUGHT},
+            [{"thought": True, "text": THOUGHT}],
+            id="reasoning-content-only",
+        ),
+        pytest.param(
+            {
+                "reasoning_content": f"{THOUGHT} Then answer.",
+                "thinking_blocks": [
+                    {"type": "thinking", "thinking": THOUGHT, "signature": "anthropic-signature"},
+                    {"type": "thinking", "thinking": "Then answer."},
+                ],
+            },
+            [{"thought": True, "text": THOUGHT}, {"thought": True, "text": "Then answer."}],
+            id="mixed-signed-and-unsigned-blocks-keep-every-thought-in-order",
+        ),
+        pytest.param(
+            {"thinking_blocks": [{"type": "thinking", "thinking": GEMINI_PART_JSON, "signature": "gemini-signature"}]},
+            [
+                {
+                    "thoughtSignature": "gemini-signature",
+                    "functionCall": {"name": "get_weather", "args": {"city": "Paris"}},
+                }
+            ],
+            id="serialized-gemini-part-keeps-its-signature",
+        ),
+    ],
+)
+def test_saved_assistant_thinking_replays_once_per_block(saved_turn, expected_replayed_thinking):
+    contents = transformation._gemini_convert_messages_with_history(
+        messages=[
+            {"role": "user", "content": "Weather in Paris and Tokyo?"},
+            {"role": "assistant", "content": "Checking both.", **saved_turn},
+            {"role": "user", "content": "Thanks."},
+        ]
+    )
+
+    assert contents[1]["parts"] == [*expected_replayed_thinking, {"text": "Checking both."}]

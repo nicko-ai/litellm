@@ -42,7 +42,9 @@ from litellm.types.llms.openai import (
     ChatCompletionAudioObject,
     ChatCompletionFileObject,
     ChatCompletionImageObject,
+    ChatCompletionRedactedThinkingBlock,
     ChatCompletionTextObject,
+    ChatCompletionThinkingBlock,
     ChatCompletionUserMessage,
 )
 from litellm.types.llms.vertex_ai import *
@@ -637,6 +639,35 @@ def check_if_part_exists_in_parts(parts: list[PartType], part: PartType, exclude
     return False
 
 
+def _thinking_part(thinking: str, signature: str | None) -> PartType:
+    if signature is not None:
+        try:
+            return PartType(thoughtSignature=signature, **json.loads(thinking))
+        except (ValueError, TypeError):
+            pass
+    return PartType(thought=True, text=thinking)
+
+
+def _assistant_thinking_parts(
+    reasoning_content: str | None,
+    thinking_blocks: list[ChatCompletionThinkingBlock | ChatCompletionRedactedThinkingBlock] | None,
+) -> list[PartType]:
+    """
+    Replay each thinking block once, as a thought part. Gemini returns its own thought text
+    unsigned (gemini-3.x, checked 2026-10-03), so a signature on a plain-text thinking block
+    came from another provider such as Anthropic, and Gemini rejects it with a 400
+    "Corrupted thought signature".
+    """
+    thinking_parts: Final = [
+        _thinking_part(thinking, block.get("signature"))
+        for block in thinking_blocks or []
+        if block["type"] == "thinking" and (thinking := block.get("thinking"))
+    ]
+    if thinking_parts or reasoning_content is None:
+        return thinking_parts
+    return [PartType(thought=True, text=reasoning_content)]
+
+
 def _collect_tool_call_thought_signatures(
     assistant_msg: ChatCompletionAssistantMessage,
 ) -> frozenset[str]:
@@ -882,28 +913,7 @@ def _gemini_convert_messages_with_history(
                 _message_content = assistant_msg.get("content", None)
                 reasoning_content = assistant_msg.get("reasoning_content", None)
                 thinking_blocks = assistant_msg.get("thinking_blocks")
-                if reasoning_content is not None:
-                    assistant_content.append(PartType(thought=True, text=reasoning_content))
-                if thinking_blocks is not None:
-                    for block in thinking_blocks:
-                        if block["type"] == "thinking":
-                            block_thinking_str = block.get("thinking")
-                            block_signature = block.get("signature")
-                            if block_thinking_str is not None and block_signature is not None:
-                                try:
-                                    assistant_content.append(
-                                        PartType(
-                                            thoughtSignature=block_signature,
-                                            **json.loads(block_thinking_str),
-                                        )
-                                    )
-                                except Exception:
-                                    assistant_content.append(
-                                        PartType(
-                                            thoughtSignature=block_signature,
-                                            text=block_thinking_str,
-                                        )
-                                    )
+                assistant_content.extend(_assistant_thinking_parts(reasoning_content, thinking_blocks))
                 if _message_content is not None and isinstance(_message_content, list):
                     _parts = []
                     for element in _message_content:
