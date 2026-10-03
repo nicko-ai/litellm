@@ -802,7 +802,8 @@ class TestMistralFileHandling:
 class TestMistralStripsOutputOnlyFields:
     """Mistral rejects unknown input fields with a 422 ``extra_forbidden``.
 
-    LiteLLM attaches ``reasoning_content`` / ``thinking_blocks`` to assistant
+    LiteLLM attaches ``reasoning_content`` / ``thinking_blocks`` /
+    ``provider_specific_fields`` to assistant
     responses, so replaying an assistant turn verbatim must not forward them.
     Regression for https://github.com/BerriAI/litellm/issues/30835.
     """
@@ -819,6 +820,11 @@ class TestMistralStripsOutputOnlyFields:
                     "thinking_blocks": [
                         {"type": "thinking", "thinking": "step", "signature": "mistral"}
                     ],
+                    "provider_specific_fields": {
+                        "thinking_blocks": [
+                            {"type": "thinking", "thinking": "", "signature": "anthropic-sig"}
+                        ]
+                    },
                 },
             ],
         )
@@ -833,6 +839,7 @@ class TestMistralStripsOutputOnlyFields:
         assistant_message = result[-1]
         assert "reasoning_content" not in assistant_message
         assert "thinking_blocks" not in assistant_message
+        assert "provider_specific_fields" not in assistant_message
         assert assistant_message["content"] == "Follow-up"
         assert assistant_message["role"] == "assistant"
 
