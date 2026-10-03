@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType, ModuleType
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from litellm.harness.context import SessionContext
 from litellm.harness.errors import HarnessError, HarnessInstallFailed
@@ -55,28 +55,15 @@ if TYPE_CHECKING:
 _MODEL_NODE = "model"
 
 
-class _AgentStateSnapshot(Protocol):
-    """The part of a LangGraph StateSnapshot this handler reads."""
-
-    @property
-    def values(self) -> Mapping[str, object] | None: ...
-
-
-class _DeepAgent(Protocol):
-    """The compiled deep agent graph methods this handler calls directly."""
-
-    def aget_state(self, config: object) -> Awaitable[_AgentStateSnapshot]: ...
-
-
 @dataclass(frozen=True)
 class DeepAgentsDeps:
     """The optional-dependency entrypoints this handler uses."""
 
-    create_deep_agent: Callable[..., _DeepAgent]
-    chat_litellm: Callable[..., object]
-    checkpointer_cls: Callable[[], object]
-    command_cls: Callable[..., object]
-    subagent_defaults: Mapping[str, object]
+    create_deep_agent: Any
+    chat_litellm: Any
+    checkpointer_cls: Any
+    command_cls: Any
+    subagent_defaults: Mapping[str, Any]
     convert_to_openai_messages: Any
     backend: ModuleType
 
@@ -187,9 +174,9 @@ class DeepAgentsHandler(BaseHarnessHandler):
                 yield event
             if not state.interrupts:
                 break
-            resume: dict[str, object] = {}  # mutable-ok: Command(resume=) payload, filled per answered approval
+            resume: dict[str, Any] = {}  # mutable-ok: Command(resume=) payload, filled per answered approval
             for interrupt in state.interrupts:
-                decisions: list[dict[str, object]] = []  # mutable-ok: HITL decisions collected across awaited approvals
+                decisions: list[dict[str, Any]] = []  # mutable-ok: HITL decisions collected across awaited approvals
                 for request in approval_requests(getattr(interrupt, "value", None)):
                     approval = Approval(
                         tool=normalized_tool_name(str(request.get("name") or "")),
@@ -249,13 +236,13 @@ class DeepAgentsHandler(BaseHarnessHandler):
         return run_config
 
     @staticmethod
-    def _middleware(deps: DeepAgentsDeps, blocked: frozenset[str]) -> list[object]:  # mutable-ok: deepagents API
+    def _middleware(deps: DeepAgentsDeps, blocked: frozenset[str]) -> list[Any]:  # mutable-ok: deepagents API
         filters = (deps.backend.ToolFilterMiddleware(blocked),) if blocked else ()
         return list(filters)  # mutable-ok: deepagents create_deep_agent(middleware=) takes a list
 
     def _subagents(
         self, ctx: SessionContext, deps: DeepAgentsDeps, blocked: frozenset[str]
-    ) -> list[object]:  # mutable-ok: deepagents create_deep_agent(subagents=) takes a list
+    ) -> list[Any]:  # mutable-ok: deepagents create_deep_agent(subagents=) takes a list
         """User subagents, plus a general-purpose one that honours disable_tools when set."""
         options = ctx.options if isinstance(ctx.options, DeepAgentsOptions) else None
         user_subagents = tuple(options.subagents) if options is not None else ()
